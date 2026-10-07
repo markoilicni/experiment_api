@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER
+  MANAGER
+  PDP
+  USER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  name         String
+  email        String?
+  phone        String?
+  address      String?
+  role         Role     @default(USER)
+  managerId    String?
+  manager      User?    @relation("UserManager", fields: [managerId], references: [id])
+  managedUsers User[]   @relation("UserManager")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
