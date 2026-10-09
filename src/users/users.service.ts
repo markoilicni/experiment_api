@@ -7,6 +7,7 @@ import * as bcrypt from 'bcrypt';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
+import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { SafeUser, toSafeUser } from './users.types.js';
 
@@ -44,9 +45,11 @@ export class UsersService {
     return toSafeUser(user);
   }
 
-  async findAll(): Promise<SafeUser[]> {
+  async findAll(query: ListUsersQueryDto = {}): Promise<SafeUser[]> {
+    const sortBy = query.sortBy ?? 'createdAt';
+    const sortOrder = query.sortOrder === 'DESC' ? 'desc' : 'asc';
     const users = await this.prisma.user.findMany({
-      orderBy: { createdAt: 'asc' },
+      orderBy: { [sortBy]: sortOrder },
     });
     return users.map(toSafeUser);
   }
