@@ -48,7 +48,16 @@ export class UsersService {
   async findAll(query: ListUsersQueryDto = {}): Promise<SafeUser[]> {
     const sortBy = query.sortBy ?? 'createdAt';
     const sortOrder = query.sortOrder === 'DESC' ? 'desc' : 'asc';
+    const where: Prisma.UserWhereInput = {};
+    if (query.role) {
+      where.role = query.role;
+    }
+    if (query.managerId) {
+      where.managerId = query.managerId;
+    }
+
     const users = await this.prisma.user.findMany({
+      where,
       orderBy: { [sortBy]: sortOrder },
     });
     return users.map(toSafeUser);
