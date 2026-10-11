@@ -31,6 +31,7 @@ describe('UsersService.findAll', () => {
   it('sorts by createdAt ascending when no query is provided', async () => {
     await service.findAll();
     expect(findMany).toHaveBeenCalledWith({
+      where: {},
       orderBy: { createdAt: 'asc' },
     });
   });
@@ -41,9 +42,18 @@ describe('UsersService.findAll', () => {
       sortOrder: 'DESC',
     });
     expect(findMany).toHaveBeenCalledWith({
+      where: {},
       orderBy: { username: 'desc' },
     });
     expect(result[0].username).toBe('ada');
     expect(result[0]).not.toHaveProperty('passwordHash');
+  });
+
+  it('filters by role and manager together', async () => {
+    await service.findAll({ role: Role.USER, managerId: 'manager-1' });
+    expect(findMany).toHaveBeenCalledWith({
+      where: { role: Role.USER, managerId: 'manager-1' },
+      orderBy: { createdAt: 'asc' },
+    });
   });
 });

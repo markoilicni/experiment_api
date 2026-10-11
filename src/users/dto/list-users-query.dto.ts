@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { Transform } from 'class-transformer';
-import { IsIn, IsOptional } from 'class-validator';
+import { IsEnum, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 
 export const USER_SORT_FIELDS = [
   'username',
@@ -25,4 +26,18 @@ export class ListUsersQueryDto {
   )
   @IsIn(['ASC', 'DESC'])
   sortOrder?: 'ASC' | 'DESC';
+
+  @ApiPropertyOptional({ enum: Role })
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.toUpperCase() : value,
+  )
+  @IsEnum(Role)
+  role?: Role;
+
+  @ApiPropertyOptional({ description: 'Manager user id' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  managerId?: string;
 }

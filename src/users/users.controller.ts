@@ -46,6 +46,8 @@ export class UsersController {
   @Roles(Role.SUPER, Role.MANAGER)
   @ApiQuery({ name: 'sortBy', required: false, enum: USER_SORT_FIELDS })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['ASC', 'DESC'] })
+  @ApiQuery({ name: 'role', required: false, enum: Role })
+  @ApiQuery({ name: 'managerId', required: false, type: String })
   @ApiOkResponse({ description: 'List users' })
   findAll(@Query() query: ListUsersQueryDto) {
     return this.usersService.findAll(query);
