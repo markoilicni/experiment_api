@@ -48,6 +48,8 @@ model TopicGroup {
   topics       Topic[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@unique([disciplineId, name])
 }
 
 model Topic {
