@@ -1,0 +1,23 @@
+---
+description: Save each pull request description as a markdown note in docs
+alwaysApply: true
+---
+
+# Pull request notes
+
+When you open a pull request, add its description to `docs/pull-requests/` in the same change.
+
+- File name: `NNNN-short-title.md`, where `NNNN` is the pull request number, zero-padded to 4 digits. If the number is not known yet, use the next number after the highest file already in that folder, then rename once the pull request exists.
+- Keep the documentation from the description: title, link to the pull request, summary, behavior, endpoints, and error cases.
+- Leave out test plans, checklists, and tool footers.
+- Add one row to `docs/pull-requests/README.md`.
+
+```markdown
+# Short title
+
+[Pull request #15](https://github.com/markoilicni/experiment_api/pull/15)
+
+## Summary
+
+- What changed and how callers use it.
+```
