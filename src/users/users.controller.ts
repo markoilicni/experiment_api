@@ -22,6 +22,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
+import { DeactivateUserDto } from './dto/deactivate-user.dto.js';
 import {
   ListUsersQueryDto,
   USER_SORT_FIELDS,
@@ -99,6 +100,20 @@ export class UsersController {
   @ApiOkResponse({ description: 'Get user by id' })
   findOne(@Param('id') id: string, @Req() req: AuthRequest) {
     return this.usersService.findOne(id, req.user.role);
+  }
+
+  @Post(':id/deactivate')
+  @Roles(Role.SUPER, Role.MANAGER)
+  @ApiOkResponse({
+    description:
+      'User deactivated. A manager with direct reports requires replacementManagerId. A PDP with assigned users requires replacementPdpId.',
+  })
+  deactivate(
+    @Param('id') id: string,
+    @Body() dto: DeactivateUserDto,
+    @Req() req: AuthRequest,
+  ) {
+    return this.usersService.deactivate(id, dto, req.user.role);
   }
 
   @Patch(':id')
