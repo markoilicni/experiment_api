@@ -60,4 +60,28 @@ describe('ListUsersQueryDto', () => {
     const errors = await validateQuery({ active: 'maybe' });
     expect(errors.some((error) => error.property === 'active')).toBe(true);
   });
+
+  it('accepts positive page and pageSize integers', async () => {
+    const dto = plainToInstance(ListUsersQueryDto, {
+      page: '2',
+      pageSize: '25',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+    expect(dto.page).toBe(2);
+    expect(dto.pageSize).toBe(25);
+  });
+
+  it('rejects page or pageSize that are not integers greater than 0', async () => {
+    const zeroPage = await validateQuery({ page: 0 });
+    expect(zeroPage.some((error) => error.property === 'page')).toBe(true);
+
+    const negativeSize = await validateQuery({ pageSize: -1 });
+    expect(negativeSize.some((error) => error.property === 'pageSize')).toBe(
+      true,
+    );
+
+    const fractional = await validateQuery({ page: 1.5 });
+    expect(fractional.some((error) => error.property === 'page')).toBe(true);
+  });
 });

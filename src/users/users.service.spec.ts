@@ -31,21 +31,39 @@ const inactiveUser = {
 
 describe('UsersService.findAll', () => {
   const findMany = vi.fn();
+  const count = vi.fn();
   const service = new UsersService({
-    user: { findMany },
+    user: { findMany, count },
   } as unknown as PrismaService);
 
   beforeEach(() => {
     findMany.mockReset();
+    count.mockReset();
     findMany.mockResolvedValue([user]);
+    count.mockResolvedValue(1);
   });
 
-  it('defaults to active users sorted by createdAt ascending', async () => {
-    await service.findAll({}, Role.SUPER);
+  it('defaults to active users sorted by createdAt with default pagination', async () => {
+    const result = await service.findAll({}, Role.SUPER);
     expect(findMany).toHaveBeenCalledWith({
       where: { active: true },
       orderBy: { createdAt: 'asc' },
+      skip: 0,
+      take: 100,
     });
+    expect(count).toHaveBeenCalledWith({ where: { active: true } });
+    expect(result).toEqual({
+      data: [
+        expect.objectContaining({
+          username: 'ada',
+          active: true,
+        }),
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 1,
+    });
+    expect(result.data[0]).not.toHaveProperty('passwordHash');
   });
 
   it('sorts by the requested field and direction', async () => {
@@ -59,10 +77,11 @@ describe('UsersService.findAll', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: { active: true },
       orderBy: { username: 'desc' },
+      skip: 0,
+      take: 100,
     });
-    expect(result[0].username).toBe('ada');
-    expect(result[0].active).toBe(true);
-    expect(result[0]).not.toHaveProperty('passwordHash');
+    expect(result.data[0].username).toBe('ada');
+    expect(result.data[0].active).toBe(true);
   });
 
   it('filters by role, manager, and active together', async () => {
@@ -73,6 +92,35 @@ describe('UsersService.findAll', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: { role: Role.USER, managerId: 'manager-1', active: true },
       orderBy: { createdAt: 'asc' },
+      skip: 0,
+      take: 100,
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: { role: Role.USER, managerId: 'manager-1', active: true },
+    });
+  });
+
+  it('applies page and pageSize after filters', async () => {
+    count.mockResolvedValue(250);
+    const result = await service.findAll(
+      {
+        role: Role.USER,
+        page: 2,
+        pageSize: 50,
+      },
+      Role.SUPER,
+    );
+    expect(findMany).toHaveBeenCalledWith({
+      where: { role: Role.USER, active: true },
+      orderBy: { createdAt: 'asc' },
+      skip: 50,
+      take: 50,
+    });
+    expect(result).toEqual({
+      data: [expect.objectContaining({ username: 'ada' })],
+      page: 2,
+      pageSize: 50,
+      total: 250,
     });
   });
 
@@ -82,7 +130,10 @@ describe('UsersService.findAll', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: { active: false },
       orderBy: { createdAt: 'asc' },
+      skip: 0,
+      take: 100,
     });
+    expect(count).toHaveBeenCalledWith({ where: { active: false } });
   });
 
   it('forbids non-SUPER callers from listing inactive users', async () => {

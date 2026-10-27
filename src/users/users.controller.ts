@@ -60,7 +60,22 @@ export class UsersController {
     description:
       'Filter by active flag (AND with other filters). Omitted defaults to active users only. Only SUPER may pass false.',
   })
-  @ApiOkResponse({ description: 'List users' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: '1-based page number (default 1)',
+  })
+  @ApiQuery({
+    name: 'pageSize',
+    required: false,
+    type: Number,
+    description: 'Users per page (default 100)',
+  })
+  @ApiOkResponse({
+    description:
+      'Paginated users: { data, page, pageSize, total }. Pagination applies after sort and filter.',
+  })
   findAll(@Query() query: ListUsersQueryDto, @Req() req: AuthRequest) {
     return this.usersService.findAll(query, req.user.role);
   }
