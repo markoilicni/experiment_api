@@ -23,6 +23,7 @@ model User {
   phone        String?
   address      String?
   role         Role     @default(USER)
+  active       Boolean  @default(true)
   managerId    String?
   manager      User?    @relation("UserManager", fields: [managerId], references: [id])
   managedUsers User[]   @relation("UserManager")

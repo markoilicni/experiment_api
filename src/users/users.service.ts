@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -45,10 +46,21 @@ export class UsersService {
     return toSafeUser(user);
   }
 
-  async findAll(query: ListUsersQueryDto = {}): Promise<SafeUser[]> {
+  async findAll(
+    query: ListUsersQueryDto = {},
+    callerRole: Role,
+  ): Promise<SafeUser[]> {
+    if (query.active === false && callerRole !== Role.SUPER) {
+      throw new ForbiddenException(
+        'Only SUPER may list inactive users',
+      );
+    }
+
     const sortBy = query.sortBy ?? 'createdAt';
     const sortOrder = query.sortOrder === 'DESC' ? 'desc' : 'asc';
-    const where: Prisma.UserWhereInput = {};
+    const where: Prisma.UserWhereInput = {
+      active: query.active ?? true,
+    };
     if (query.role) {
       where.role = query.role;
     }
@@ -63,8 +75,11 @@ export class UsersService {
     return users.map(toSafeUser);
   }
 
-  async findOne(id: string): Promise<SafeUser> {
+  async findOne(id: string, callerRole: Role): Promise<SafeUser> {
     const user = await this.ensureUserExists(id);
+    if (!user.active && callerRole !== Role.SUPER) {
+      throw new NotFoundException(`User ${id} not found`);
+    }
     return toSafeUser(user);
   }
 
@@ -76,8 +91,16 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<SafeUser> {
+  async update(
+    id: string,
+    dto: UpdateUserDto,
+    callerRole: Role,
+  ): Promise<SafeUser> {
     await this.ensureUserExists(id);
+
+    if (dto.active !== undefined) {
+      this.assertCanChangeActive(callerRole, dto.active);
+    }
 
     if (dto.username) {
       const clash = await this.prisma.user.findFirst({
@@ -102,6 +125,7 @@ export class UsersService {
       phone: dto.phone,
       address: dto.address,
       role: dto.role,
+      active: dto.active,
     };
 
     if (dto.managerId !== undefined) {
@@ -121,6 +145,15 @@ export class UsersService {
   async remove(id: string): Promise<void> {
     await this.ensureUserExists(id);
     await this.prisma.user.delete({ where: { id } });
+  }
+
+  private assertCanChangeActive(callerRole: Role, active: boolean) {
+    if (callerRole === Role.PDP || callerRole === Role.USER) {
+      throw new ForbiddenException('Cannot change active');
+    }
+    if (active && callerRole !== Role.SUPER) {
+      throw new ForbiddenException('Only SUPER may reactivate a user');
+    }
   }
 
   private async ensureUserExists(id: string) {

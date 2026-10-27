@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -28,6 +29,10 @@ import {
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { UsersService } from './users.service.js';
 
+type AuthRequest = {
+  user: { id: string; username: string; role: Role };
+};
+
 @ApiTags('users')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -48,23 +53,34 @@ export class UsersController {
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['ASC', 'DESC'] })
   @ApiQuery({ name: 'role', required: false, enum: Role })
   @ApiQuery({ name: 'managerId', required: false, type: String })
+  @ApiQuery({
+    name: 'active',
+    required: false,
+    type: Boolean,
+    description:
+      'Filter by active flag (AND with other filters). Omitted defaults to active users only. Only SUPER may pass false.',
+  })
   @ApiOkResponse({ description: 'List users' })
-  findAll(@Query() query: ListUsersQueryDto) {
-    return this.usersService.findAll(query);
+  findAll(@Query() query: ListUsersQueryDto, @Req() req: AuthRequest) {
+    return this.usersService.findAll(query, req.user.role);
   }
 
   @Get(':id')
   @Roles(Role.SUPER, Role.MANAGER)
   @ApiOkResponse({ description: 'Get user by id' })
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: AuthRequest) {
+    return this.usersService.findOne(id, req.user.role);
   }
 
   @Patch(':id')
   @Roles(Role.SUPER)
   @ApiOkResponse({ description: 'User updated' })
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.usersService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+    @Req() req: AuthRequest,
+  ) {
+    return this.usersService.update(id, dto, req.user.role);
   }
 
   @Delete(':id')
