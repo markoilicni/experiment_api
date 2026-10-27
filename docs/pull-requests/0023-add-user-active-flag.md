@@ -1,6 +1,6 @@
 # Add user active flag and block inactive login
 
-[Pull request #16](https://github.com/markoilicni/experiment_api/pull/16)
+[Pull request #23](https://github.com/markoilicni/experiment_api/pull/23)
 
 ## Summary
 
