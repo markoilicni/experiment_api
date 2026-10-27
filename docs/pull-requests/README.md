@@ -9,3 +9,4 @@ Each merged pull request keeps its description here, in `docs/pull-requests/`. T
 | [#13](https://github.com/markoilicni/experiment_api/pull/13) | [Add Discipline CRUD endpoints](0013-discipline-crud.md) |
 | [#14](https://github.com/markoilicni/experiment_api/pull/14) | [Add topic group CRUD](0014-topic-group-crud.md) |
 | [#15](https://github.com/markoilicni/experiment_api/pull/15) | [Save pull request descriptions in docs](0015-pull-request-notes.md) |
+| [#22](https://github.com/markoilicni/experiment_api/pull/22) | [Add pagination to GET users](0022-paginate-get-users.md) |

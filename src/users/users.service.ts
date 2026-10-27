@@ -7,9 +7,13 @@ import * as bcrypt from 'bcrypt';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
-import { ListUsersQueryDto } from './dto/list-users-query.dto.js';
+import {
+  DEFAULT_USERS_PAGE,
+  DEFAULT_USERS_PAGE_SIZE,
+  ListUsersQueryDto,
+} from './dto/list-users-query.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
-import { SafeUser, toSafeUser } from './users.types.js';
+import { PaginatedUsers, SafeUser, toSafeUser } from './users.types.js';
 
 const SALT_ROUNDS = 10;
 
@@ -45,9 +49,11 @@ export class UsersService {
     return toSafeUser(user);
   }
 
-  async findAll(query: ListUsersQueryDto = {}): Promise<SafeUser[]> {
+  async findAll(query: ListUsersQueryDto = {}): Promise<PaginatedUsers> {
     const sortBy = query.sortBy ?? 'createdAt';
     const sortOrder = query.sortOrder === 'DESC' ? 'desc' : 'asc';
+    const page = query.page ?? DEFAULT_USERS_PAGE;
+    const pageSize = query.pageSize ?? DEFAULT_USERS_PAGE_SIZE;
     const where: Prisma.UserWhereInput = {};
     if (query.role) {
       where.role = query.role;
@@ -56,11 +62,22 @@ export class UsersService {
       where.managerId = query.managerId;
     }
 
-    const users = await this.prisma.user.findMany({
-      where,
-      orderBy: { [sortBy]: sortOrder },
-    });
-    return users.map(toSafeUser);
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users.map(toSafeUser),
+      page,
+      pageSize,
+      total,
+    };
   }
 
   async findOne(id: string): Promise<SafeUser> {
