@@ -1,0 +1,15 @@
+---
+description: When the user says finish it, confirm the PR is on main, delete the feature branch, and close the issue
+alwaysApply: true
+---
+
+# Finish it
+
+When the user says **finish it**, or a close variant such as "finish this", run this sequence. Do not ask which branch or issue if the current work identifies them.
+
+1. Confirm the pull request is **merged into `main`**. If it is still open, stop and say so. Do not merge it.
+2. Check out `main` and fast-forward it to `origin/main`.
+3. Delete the feature branch locally and on the remote.
+4. Close the GitHub issue that pull request completed, with a short comment naming the merged pull request.
+
+The issue is the one the pull request implements. If that is unclear, use the issue number in the branch name.
