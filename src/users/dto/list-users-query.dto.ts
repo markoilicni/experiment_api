@@ -79,6 +79,20 @@ export class ListUsersQueryDto {
   hasPdp?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'Filter by active flag. When omitted, only active users are returned. Combined with other filters using AND. Only SUPER may request active=false.',
+    type: Boolean,
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return value;
+  })
+  @IsBoolean()
+  active?: boolean;
+
+  @ApiPropertyOptional({
     description: '1-based page number',
     default: DEFAULT_USERS_PAGE,
     minimum: 1,

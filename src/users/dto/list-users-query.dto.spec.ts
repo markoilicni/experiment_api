@@ -64,6 +64,18 @@ describe('ListUsersQueryDto', () => {
     expect(errors.some((error) => error.property === 'role')).toBe(true);
   });
 
+  it('accepts active as a boolean string', async () => {
+    const dto = plainToInstance(ListUsersQueryDto, { active: 'false' });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+    expect(dto.active).toBe(false);
+  });
+
+  it('rejects a non-boolean active value', async () => {
+    const errors = await validateQuery({ active: 'maybe' });
+    expect(errors.some((error) => error.property === 'active')).toBe(true);
+  });
+
   it('accepts positive page and pageSize integers', async () => {
     const dto = plainToInstance(ListUsersQueryDto, {
       page: '2',

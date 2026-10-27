@@ -28,6 +28,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (!user.active) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
     return this.buildAuthResponse(user.id, user.role, toSafeUser(user));
   }
 
@@ -46,7 +50,7 @@ export class AuthService {
     }
 
     const user = await this.usersService.findById(payload.sub);
-    if (!user) {
+    if (!user || !user.active) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
