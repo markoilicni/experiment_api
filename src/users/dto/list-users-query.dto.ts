@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -51,6 +52,20 @@ export class ListUsersQueryDto {
   @IsString()
   @MinLength(1)
   managerId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Filter by active flag. When omitted, only active users are returned. Combined with other filters using AND. Only SUPER may request active=false.',
+    type: Boolean,
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return value;
+  })
+  @IsBoolean()
+  active?: boolean;
 
   @ApiPropertyOptional({
     description: '1-based page number',
