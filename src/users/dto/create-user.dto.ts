@@ -47,4 +47,13 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   managerId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'PDP user id. Optional for role USER. Must be empty for PDP, MANAGER, and SUPER.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  pdpId?: string | null;
 }

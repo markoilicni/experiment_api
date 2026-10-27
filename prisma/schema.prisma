@@ -26,6 +26,9 @@ model User {
   managerId    String?
   manager      User?    @relation("UserManager", fields: [managerId], references: [id])
   managedUsers User[]   @relation("UserManager")
+  pdpId        String?
+  pdp          User?    @relation("UserPdp", fields: [pdpId], references: [id])
+  pdpUsers     User[]   @relation("UserPdp")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

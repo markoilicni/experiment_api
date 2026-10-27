@@ -9,6 +9,7 @@ export type SafeUser = {
   address: string | null;
   role: Role;
   managerId: string | null;
+  pdpId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -29,6 +30,7 @@ export function toSafeUser(user: {
   address: string | null;
   role: Role;
   managerId: string | null;
+  pdpId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): SafeUser {
@@ -41,6 +43,7 @@ export function toSafeUser(user: {
     address: user.address,
     role: user.role,
     managerId: user.managerId,
+    pdpId: user.pdpId,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

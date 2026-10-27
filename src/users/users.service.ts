@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -17,6 +18,12 @@ import { PaginatedUsers, SafeUser, toSafeUser } from './users.types.js';
 
 const SALT_ROUNDS = 10;
 
+function emptyToNull(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -29,9 +36,14 @@ export class UsersService {
       throw new ConflictException('Username already taken');
     }
 
-    if (dto.managerId) {
-      await this.ensureUserExists(dto.managerId);
+    const role = dto.role ?? Role.USER;
+    const managerId = emptyToNull(dto.managerId);
+    const pdpId = emptyToNull(dto.pdpId);
+
+    if (managerId) {
+      await this.ensureUserExists(managerId);
     }
+    await this.assertAssignment({ role, managerId, pdpId });
 
     const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
     const user = await this.prisma.user.create({
@@ -42,8 +54,9 @@ export class UsersService {
         email: dto.email,
         phone: dto.phone,
         address: dto.address,
-        role: dto.role,
-        managerId: dto.managerId,
+        role,
+        managerId,
+        pdpId,
       },
     });
     return toSafeUser(user);
@@ -60,6 +73,17 @@ export class UsersService {
     }
     if (query.managerId) {
       where.managerId = query.managerId;
+    }
+    if (query.pdpId && query.hasPdp === false) {
+      throw new BadRequestException(
+        'pdpId and hasPdp=false cannot be used together',
+      );
+    }
+    if (query.pdpId) {
+      where.pdpId = query.pdpId;
+    }
+    if (query.hasPdp === false) {
+      where.pdpId = null;
     }
 
     const [users, total] = await Promise.all([
@@ -94,7 +118,7 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto): Promise<SafeUser> {
-    await this.ensureUserExists(id);
+    const existing = await this.ensureUserExists(id);
 
     if (dto.username) {
       const clash = await this.prisma.user.findFirst({
@@ -105,12 +129,23 @@ export class UsersService {
       }
     }
 
-    if (dto.managerId) {
-      if (dto.managerId === id) {
+    const managerId =
+      dto.managerId !== undefined
+        ? emptyToNull(dto.managerId)
+        : existing.managerId;
+    const pdpId =
+      dto.pdpId !== undefined ? emptyToNull(dto.pdpId) : existing.pdpId;
+    const role = dto.role ?? existing.role;
+
+    if (managerId) {
+      if (managerId === id) {
         throw new ConflictException('User cannot be their own manager');
       }
-      await this.ensureUserExists(dto.managerId);
+      if (dto.managerId !== undefined) {
+        await this.ensureUserExists(managerId);
+      }
     }
+    await this.assertAssignment({ role, managerId, pdpId, userId: id });
 
     const data: Prisma.UserUpdateInput = {
       username: dto.username,
@@ -122,9 +157,17 @@ export class UsersService {
     };
 
     if (dto.managerId !== undefined) {
-      data.manager = dto.managerId
-        ? { connect: { id: dto.managerId } }
+      data.manager = managerId
+        ? { connect: { id: managerId } }
         : { disconnect: true };
+    }
+
+    if (dto.pdpId !== undefined) {
+      if (pdpId) {
+        data.pdp = { connect: { id: pdpId } };
+      } else if (existing.pdpId) {
+        data.pdp = { disconnect: true };
+      }
     }
 
     if (dto.password) {
@@ -138,6 +181,49 @@ export class UsersService {
   async remove(id: string): Promise<void> {
     await this.ensureUserExists(id);
     await this.prisma.user.delete({ where: { id } });
+  }
+
+  private async assertAssignment(input: {
+    role: Role;
+    managerId: string | null;
+    pdpId: string | null;
+    userId?: string;
+  }) {
+    const managerRequired = input.role === Role.USER || input.role === Role.PDP;
+    if (managerRequired && !input.managerId) {
+      throw new BadRequestException('managerId is required for this role');
+    }
+
+    if (input.role !== Role.USER && input.pdpId) {
+      throw new BadRequestException('pdpId must be empty for this role');
+    }
+
+    if (!input.pdpId) {
+      return;
+    }
+
+    if (input.userId && input.pdpId === input.userId) {
+      throw new BadRequestException(
+        'pdpId must reference a user with role PDP',
+      );
+    }
+
+    const pdp = await this.prisma.user.findUnique({
+      where: { id: input.pdpId },
+    });
+    if (!pdp) {
+      throw new BadRequestException('pdpId must reference an existing user');
+    }
+    if (pdp.role !== Role.PDP) {
+      throw new BadRequestException(
+        'pdpId must reference a user with role PDP',
+      );
+    }
+    if (pdp.managerId !== input.managerId) {
+      throw new BadRequestException(
+        'pdpId must reference a PDP with the same managerId',
+      );
+    }
   }
 
   private async ensureUserExists(id: string) {

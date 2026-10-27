@@ -49,6 +49,20 @@ export class UsersController {
   @ApiQuery({ name: 'role', required: false, enum: Role })
   @ApiQuery({ name: 'managerId', required: false, type: String })
   @ApiQuery({
+    name: 'pdpId',
+    required: false,
+    type: String,
+    description:
+      'Return users assigned to this PDP. Cannot be combined with hasPdp=false.',
+  })
+  @ApiQuery({
+    name: 'hasPdp',
+    required: false,
+    enum: ['false'],
+    description:
+      'When false, return users whose pdpId is empty. Cannot be combined with pdpId.',
+  })
+  @ApiQuery({
     name: 'page',
     required: false,
     type: Number,
