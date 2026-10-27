@@ -1,6 +1,6 @@
 # Add pagination to GET users
 
-[Pull request #16](https://github.com/markoilicni/experiment_api/pull/16)
+[Pull request #22](https://github.com/markoilicni/experiment_api/pull/22)
 
 ## Summary
 
