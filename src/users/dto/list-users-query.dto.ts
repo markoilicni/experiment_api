@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
+  Equals,
   IsBoolean,
   IsEnum,
   IsIn,
@@ -52,6 +53,30 @@ export class ListUsersQueryDto {
   @IsString()
   @MinLength(1)
   managerId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Return users assigned to this PDP. Cannot be combined with hasPdp=false.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  pdpId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'When false, return users whose pdpId is empty. Cannot be combined with pdpId.',
+    enum: [false],
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return value;
+  })
+  @IsBoolean()
+  @Equals(false)
+  hasPdp?: boolean;
 
   @ApiPropertyOptional({
     description:

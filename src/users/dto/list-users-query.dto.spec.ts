@@ -44,6 +44,21 @@ describe('ListUsersQueryDto', () => {
     expect(dto.role).toBe(Role.USER);
   });
 
+  it('accepts a pdp id and hasPdp false', async () => {
+    const dto = plainToInstance(ListUsersQueryDto, {
+      pdpId: 'pdp-1',
+      hasPdp: 'false',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+    expect(dto.hasPdp).toBe(false);
+  });
+
+  it('rejects hasPdp values other than false', async () => {
+    const errors = await validateQuery({ hasPdp: 'true' });
+    expect(errors.some((error) => error.property === 'hasPdp')).toBe(true);
+  });
+
   it('rejects an unknown role', async () => {
     const errors = await validateQuery({ role: 'ADMIN' });
     expect(errors.some((error) => error.property === 'role')).toBe(true);
