@@ -531,3 +531,257 @@ describe('UsersService PDP assignment', () => {
     expect(updated.pdpId).toBeNull();
   });
 });
+
+describe('UsersService.deactivate', () => {
+  const findUnique = vi.fn();
+  const findMany = vi.fn();
+  const count = vi.fn();
+  const updateMany = vi.fn();
+  const update = vi.fn();
+  const service = new UsersService({
+    user: { findUnique, findMany, count, updateMany, update },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ user: { updateMany, update } }),
+  } as unknown as PrismaService);
+
+  const people = [
+    { ...user, id: 'mgr', username: 'mgr', role: Role.MANAGER },
+    {
+      ...user,
+      id: 'report',
+      username: 'report',
+      role: Role.USER,
+      managerId: 'mgr',
+    },
+    {
+      ...user,
+      id: 'nested',
+      username: 'nested',
+      role: Role.USER,
+      managerId: 'report',
+    },
+    {
+      ...user,
+      id: 'child-mgr',
+      username: 'child-mgr',
+      role: Role.MANAGER,
+      managerId: 'mgr',
+    },
+    {
+      ...user,
+      id: 'deep-mgr',
+      username: 'deep-mgr',
+      role: Role.MANAGER,
+      managerId: 'report',
+    },
+    { ...user, id: 'other', username: 'other', role: Role.MANAGER },
+    {
+      ...user,
+      id: 'inactive-mgr',
+      username: 'inactive-mgr',
+      role: Role.MANAGER,
+      active: false,
+    },
+    {
+      ...user,
+      id: 'pdp',
+      username: 'pdp',
+      role: Role.PDP,
+      managerId: 'other',
+    },
+    {
+      ...user,
+      id: 'assignee',
+      username: 'assignee',
+      role: Role.USER,
+      managerId: 'other',
+      pdpId: 'pdp',
+    },
+    {
+      ...user,
+      id: 'other-pdp',
+      username: 'other-pdp',
+      role: Role.PDP,
+      managerId: 'other',
+    },
+    {
+      ...user,
+      id: 'wrong-pdp',
+      username: 'wrong-pdp',
+      role: Role.PDP,
+      managerId: 'mgr',
+    },
+    {
+      ...user,
+      id: 'solo-pdp',
+      username: 'solo-pdp',
+      role: Role.PDP,
+      managerId: 'other',
+    },
+    {
+      ...user,
+      id: 'plain',
+      username: 'plain',
+      role: Role.USER,
+      managerId: 'other',
+    },
+    { ...user, id: 'solo-mgr', username: 'solo-mgr', role: Role.MANAGER },
+    {
+      ...user,
+      id: 'gone',
+      username: 'gone',
+      role: Role.USER,
+      active: false,
+      managerId: 'other',
+    },
+  ];
+
+  beforeEach(() => {
+    findUnique.mockReset();
+    findMany.mockReset();
+    count.mockReset();
+    updateMany.mockReset();
+    update.mockReset();
+    findUnique.mockImplementation(
+      async ({ where }: { where: { id: string } }) => {
+        return people.find((person) => person.id === where.id) ?? null;
+      },
+    );
+    findMany.mockImplementation(
+      async ({ where }: { where?: { managerId?: string; pdpId?: string } }) => {
+        return people.filter((person) => {
+          if (where?.managerId) return person.managerId === where.managerId;
+          if (where?.pdpId) return person.pdpId === where.pdpId;
+          return true;
+        });
+      },
+    );
+    count.mockImplementation(
+      async ({ where }: { where: { managerId?: string; pdpId?: string } }) =>
+        people.filter((person) => {
+          if (where.managerId) return person.managerId === where.managerId;
+          if (where.pdpId) return person.pdpId === where.pdpId;
+          return false;
+        }).length,
+    );
+    updateMany.mockResolvedValue({ count: 1 });
+    update.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      ...people.find((person) => person.id === where.id),
+      active: false,
+    }));
+  });
+
+  it('deactivates a user when no transfer is required', async () => {
+    const result = await service.deactivate('plain', {}, Role.SUPER);
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'plain' },
+      data: { active: false },
+    });
+    expect(result.active).toBe(false);
+  });
+
+  it('moves only direct reports to an outside manager', async () => {
+    await service.deactivate(
+      'mgr',
+      { replacementManagerId: 'other' },
+      Role.MANAGER,
+    );
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { managerId: 'mgr' },
+      data: { managerId: 'other' },
+    });
+  });
+
+  it('rejects a manager deactivation that omits the replacement', async () => {
+    await expect(
+      service.deactivate('mgr', {}, Role.SUPER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a replacement inside the closed tree', async () => {
+    await expect(
+      service.deactivate(
+        'mgr',
+        { replacementManagerId: 'child-mgr' },
+        Role.SUPER,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.deactivate(
+        'mgr',
+        { replacementManagerId: 'deep-mgr' },
+        Role.SUPER,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a replacement that is not an active manager', async () => {
+    await expect(
+      service.deactivate(
+        'mgr',
+        { replacementManagerId: 'inactive-mgr' },
+        Role.SUPER,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('clears pdpId when replacementPdpId is null', async () => {
+    await service.deactivate('pdp', { replacementPdpId: null }, Role.SUPER);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { pdpId: 'pdp' },
+      data: { pdpId: null },
+    });
+  });
+
+  it('moves assigned users to another PDP with the same manager', async () => {
+    await service.deactivate(
+      'pdp',
+      { replacementPdpId: 'other-pdp' },
+      Role.MANAGER,
+    );
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { pdpId: 'pdp' },
+      data: { pdpId: 'other-pdp' },
+    });
+  });
+
+  it('rejects a replacement PDP whose manager does not match', async () => {
+    await expect(
+      service.deactivate('pdp', { replacementPdpId: 'wrong-pdp' }, Role.SUPER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a PDP deactivation that omits the replacement choice', async () => {
+    await expect(
+      service.deactivate('pdp', {}, Role.SUPER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('does not require a replacement for a PDP with no assigned users', async () => {
+    await service.deactivate('solo-pdp', {}, Role.SUPER);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it('forbids USER from deactivating', async () => {
+    await expect(
+      service.deactivate('plain', {}, Role.USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects deactivating a user who is already inactive', async () => {
+    await expect(
+      service.deactivate('gone', {}, Role.SUPER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects patching active to false when a transfer is required', async () => {
+    await expect(
+      service.update('mgr', { active: false }, Role.SUPER),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
+  });
+});

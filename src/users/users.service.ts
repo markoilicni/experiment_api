@@ -9,6 +9,7 @@ import * as bcrypt from 'bcrypt';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
+import { DeactivateUserDto } from './dto/deactivate-user.dto.js';
 import {
   DEFAULT_USERS_PAGE,
   DEFAULT_USERS_PAGE_SIZE,
@@ -140,6 +141,9 @@ export class UsersService {
     if (dto.active !== undefined) {
       this.assertCanChangeActive(callerRole, dto.active);
     }
+    if (dto.active === false) {
+      await this.assertDeactivateWithoutTransfer(existing);
+    }
 
     if (dto.username) {
       const clash = await this.prisma.user.findFirst({
@@ -200,6 +204,76 @@ export class UsersService {
     return toSafeUser(user);
   }
 
+  async deactivate(
+    id: string,
+    dto: DeactivateUserDto,
+    callerRole: Role,
+  ): Promise<SafeUser> {
+    if (callerRole !== Role.SUPER && callerRole !== Role.MANAGER) {
+      throw new ForbiddenException('Cannot deactivate a user');
+    }
+
+    const existing = await this.ensureUserExists(id);
+    if (!existing.active) {
+      throw new BadRequestException('User is already inactive');
+    }
+
+    const directReports =
+      existing.role === Role.MANAGER
+        ? await this.prisma.user.findMany({
+            where: { managerId: id },
+            select: { id: true, managerId: true },
+          })
+        : [];
+    const assignees =
+      existing.role === Role.PDP
+        ? await this.prisma.user.findMany({
+            where: { pdpId: id },
+            select: { id: true, managerId: true },
+          })
+        : [];
+
+    if (directReports.length > 0 && !dto.replacementManagerId) {
+      throw new BadRequestException('replacementManagerId is required');
+    }
+    if (directReports.length === 0 && dto.replacementManagerId) {
+      throw new BadRequestException('replacementManagerId is not required');
+    }
+    if (assignees.length > 0 && dto.replacementPdpId === undefined) {
+      throw new BadRequestException('replacementPdpId is required');
+    }
+    if (assignees.length === 0 && dto.replacementPdpId !== undefined) {
+      throw new BadRequestException('replacementPdpId is not required');
+    }
+
+    if (dto.replacementManagerId) {
+      await this.assertReplacementManager(id, dto.replacementManagerId);
+    }
+    if (dto.replacementPdpId) {
+      await this.assertReplacementPdp(id, dto.replacementPdpId, assignees);
+    }
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      if (dto.replacementManagerId) {
+        await tx.user.updateMany({
+          where: { managerId: id },
+          data: { managerId: dto.replacementManagerId },
+        });
+      }
+      if (assignees.length > 0) {
+        await tx.user.updateMany({
+          where: { pdpId: id },
+          data: { pdpId: dto.replacementPdpId ?? null },
+        });
+      }
+      return tx.user.update({
+        where: { id },
+        data: { active: false },
+      });
+    });
+    return toSafeUser(user);
+  }
+
   async remove(id: string): Promise<void> {
     await this.ensureUserExists(id);
     await this.prisma.user.delete({ where: { id } });
@@ -246,6 +320,110 @@ export class UsersService {
         'pdpId must reference a PDP with the same managerId',
       );
     }
+  }
+
+  private async assertDeactivateWithoutTransfer(user: {
+    id: string;
+    role: Role;
+  }) {
+    if (user.role === Role.MANAGER) {
+      const reports = await this.prisma.user.count({
+        where: { managerId: user.id },
+      });
+      if (reports > 0) {
+        throw new BadRequestException(
+          'replacementManagerId is required to deactivate a manager with direct reports',
+        );
+      }
+    }
+    if (user.role === Role.PDP) {
+      const assignees = await this.prisma.user.count({
+        where: { pdpId: user.id },
+      });
+      if (assignees > 0) {
+        throw new BadRequestException(
+          'replacementPdpId is required to deactivate a PDP with assigned users',
+        );
+      }
+    }
+  }
+
+  private async assertReplacementManager(
+    managerId: string,
+    replacementId: string,
+  ) {
+    const replacement = await this.prisma.user.findUnique({
+      where: { id: replacementId },
+    });
+    if (
+      !replacement ||
+      replacement.role !== Role.MANAGER ||
+      !replacement.active
+    ) {
+      throw new BadRequestException(
+        'replacementManagerId must reference an active user with role MANAGER',
+      );
+    }
+
+    const closedTree = await this.descendantIds(managerId);
+    if (closedTree.has(replacementId)) {
+      throw new BadRequestException(
+        'replacementManagerId must be outside the manager tree being closed',
+      );
+    }
+  }
+
+  private async assertReplacementPdp(
+    pdpId: string,
+    replacementId: string,
+    assignees: { managerId: string | null }[],
+  ) {
+    if (replacementId === pdpId) {
+      throw new BadRequestException(
+        'replacementPdpId must reference another PDP',
+      );
+    }
+    const replacement = await this.prisma.user.findUnique({
+      where: { id: replacementId },
+    });
+    if (!replacement || replacement.role !== Role.PDP || !replacement.active) {
+      throw new BadRequestException(
+        'replacementPdpId must reference an active user with role PDP',
+      );
+    }
+    const mismatched = assignees.some(
+      (assignee) => assignee.managerId !== replacement.managerId,
+    );
+    if (mismatched) {
+      throw new BadRequestException(
+        'replacementPdpId must have the same manager as each assigned user',
+      );
+    }
+  }
+
+  private async descendantIds(rootId: string): Promise<Set<string>> {
+    const users = await this.prisma.user.findMany({
+      select: { id: true, managerId: true },
+    });
+    const children = new Map<string, string[]>();
+    for (const user of users) {
+      if (!user.managerId) continue;
+      const list = children.get(user.managerId) ?? [];
+      list.push(user.id);
+      children.set(user.managerId, list);
+    }
+
+    const closed = new Set<string>();
+    const stack = [rootId];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current || closed.has(current)) continue;
+      closed.add(current);
+      for (const child of children.get(current) ?? []) {
+        stack.push(child);
+      }
+    }
+    return closed;
   }
 
   private assertCanChangeActive(callerRole: Role, active: boolean) {
