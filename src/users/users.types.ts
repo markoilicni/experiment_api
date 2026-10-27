@@ -13,6 +13,13 @@ export type SafeUser = {
   updatedAt: Date;
 };
 
+export type PaginatedUsers = {
+  data: SafeUser[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export function toSafeUser(user: {
   id: string;
   username: string;

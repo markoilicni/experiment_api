@@ -48,7 +48,22 @@ export class UsersController {
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['ASC', 'DESC'] })
   @ApiQuery({ name: 'role', required: false, enum: Role })
   @ApiQuery({ name: 'managerId', required: false, type: String })
-  @ApiOkResponse({ description: 'List users' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: '1-based page number (default 1)',
+  })
+  @ApiQuery({
+    name: 'pageSize',
+    required: false,
+    type: Number,
+    description: 'Users per page (default 100)',
+  })
+  @ApiOkResponse({
+    description:
+      'Paginated users: { data, page, pageSize, total }. Pagination applies after sort and filter.',
+  })
   findAll(@Query() query: ListUsersQueryDto) {
     return this.usersService.findAll(query);
   }
