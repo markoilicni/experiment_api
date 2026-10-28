@@ -43,7 +43,10 @@ export class CreateUserDto {
   @IsEnum(Role)
   role: Role = Role.USER;
 
-  @ApiPropertyOptional({ description: 'Manager user id' })
+  @ApiPropertyOptional({
+    description:
+      'Manager user id. Required for USER and PDP when the caller is SUPER. When the caller is MANAGER, omit this or send the caller id. A different id is rejected.',
+  })
   @IsOptional()
   @IsString()
   managerId?: string;

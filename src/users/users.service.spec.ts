@@ -31,6 +31,8 @@ const inactiveUser = {
   active: false,
 };
 
+const superCaller = { id: 'super-1', role: Role.SUPER };
+
 describe('UsersService.findAll', () => {
   const findMany = vi.fn();
   const count = vi.fn();
@@ -158,19 +160,17 @@ describe('UsersService.findAll', () => {
   });
 
   it('filters by the manager tree without including that manager', async () => {
-    findMany.mockImplementation(
-      async (args: { select?: { id?: boolean } }) => {
-        if (args.select?.id) {
-          return [
-            { id: 'manager-1', managerId: null },
-            { id: 'direct', managerId: 'manager-1' },
-            { id: 'nested', managerId: 'direct' },
-            { id: 'other', managerId: 'someone-else' },
-          ];
-        }
-        return [user];
-      },
-    );
+    findMany.mockImplementation(async (args: { select?: { id?: boolean } }) => {
+      if (args.select?.id) {
+        return [
+          { id: 'manager-1', managerId: null },
+          { id: 'direct', managerId: 'manager-1' },
+          { id: 'nested', managerId: 'direct' },
+          { id: 'other', managerId: 'someone-else' },
+        ];
+      }
+      return [user];
+    });
 
     await service.findAll({ managerTreeId: 'manager-1' }, Role.SUPER);
 
@@ -186,17 +186,15 @@ describe('UsersService.findAll', () => {
   });
 
   it('filters by name together with the manager tree and exact managerId', async () => {
-    findMany.mockImplementation(
-      async (args: { select?: { id?: boolean } }) => {
-        if (args.select?.id) {
-          return [
-            { id: 'manager-1', managerId: null },
-            { id: 'direct', managerId: 'manager-1' },
-          ];
-        }
-        return [user];
-      },
-    );
+    findMany.mockImplementation(async (args: { select?: { id?: boolean } }) => {
+      if (args.select?.id) {
+        return [
+          { id: 'manager-1', managerId: null },
+          { id: 'direct', managerId: 'manager-1' },
+        ];
+      }
+      return [user];
+    });
 
     await service.findAll(
       {
@@ -242,6 +240,17 @@ describe('UsersService.findAll', () => {
     expect(findMany).not.toHaveBeenCalled();
   });
 
+  it('lets USER and PDP list active users', async () => {
+    await service.findAll({}, Role.USER);
+    await service.findAll({ page: 2, pageSize: 10 }, Role.PDP);
+    expect(findMany).toHaveBeenLastCalledWith({
+      where: { active: true },
+      orderBy: { createdAt: 'asc' },
+      skip: 10,
+      take: 10,
+    });
+  });
+
   it('allows SUPER to list inactive users', async () => {
     findMany.mockResolvedValue([inactiveUser]);
     await service.findAll({ active: false }, Role.SUPER);
@@ -274,8 +283,10 @@ describe('UsersService.findOne', () => {
 
   it('returns an active user for any allowed caller', async () => {
     findUnique.mockResolvedValue(user);
-    const result = await service.findOne(user.id, Role.MANAGER);
+    const result = await service.findOne(user.id, Role.USER);
     expect(result.active).toBe(true);
+    const asPdp = await service.findOne(user.id, Role.PDP);
+    expect(asPdp.username).toBe('ada');
   });
 
   it('returns an inactive user for SUPER', async () => {
@@ -295,48 +306,62 @@ describe('UsersService.findOne', () => {
 describe('UsersService.update active', () => {
   const findUnique = vi.fn();
   const findFirst = vi.fn();
+  const findMany = vi.fn();
   const update = vi.fn();
   const service = new UsersService({
-    user: { findUnique, findFirst, update },
+    user: { findUnique, findFirst, findMany, update },
   } as unknown as PrismaService);
+  const managerCaller = { id: 'manager-1', role: Role.MANAGER };
 
   beforeEach(() => {
     findUnique.mockReset();
     findFirst.mockReset();
+    findMany.mockReset();
     update.mockReset();
     findUnique.mockResolvedValue({ ...user, managerId: 'manager-1' });
-    update.mockResolvedValue({ ...user, active: false });
+    findMany.mockResolvedValue([{ id: user.id, managerId: 'manager-1' }]);
+    update.mockResolvedValue({ ...user, active: true });
   });
 
-  it('allows SUPER to deactivate a user', async () => {
-    const result = await service.update(user.id, { active: false }, Role.SUPER);
-    expect(update).toHaveBeenCalled();
-    expect(result.active).toBe(false);
+  it('rejects setting active to false on update', async () => {
+    await expect(
+      service.update(user.id, { active: false }, superCaller),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('allows SUPER to reactivate a user', async () => {
     update.mockResolvedValue({ ...user, active: true });
-    await service.update(user.id, { active: true }, Role.SUPER);
+    await service.update(user.id, { active: true }, superCaller);
     expect(update).toHaveBeenCalled();
   });
 
-  it('forbids non-SUPER from reactivating a user', async () => {
+  it('forbids a manager from reactivating a user in their tree', async () => {
     await expect(
-      service.update(user.id, { active: true }, Role.MANAGER),
+      service.update(user.id, { active: true }, managerCaller),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('forbids PDP from changing active', async () => {
+  it('forbids PDP from changing active on their own user', async () => {
     await expect(
-      service.update(user.id, { active: false }, Role.PDP),
+      service.update(
+        user.id,
+        { active: false },
+        { id: user.id, role: Role.PDP },
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('forbids USER from changing active', async () => {
+  it('forbids USER from updating a user', async () => {
     await expect(
-      service.update(user.id, { active: false }, Role.USER),
+      service.update(
+        user.id,
+        { active: false },
+        { id: 'user-9', role: Role.USER },
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(findUnique).not.toHaveBeenCalled();
   });
 });
 
@@ -404,7 +429,7 @@ describe('UsersService PDP assignment', () => {
   });
 
   it('creates a user with a PDP who shares their manager', async () => {
-    const created = await service.create({
+    const created = await service.create(superCaller, {
       username: 'ada',
       password: 'secret',
       name: 'Ada',
@@ -426,7 +451,7 @@ describe('UsersService PDP assignment', () => {
 
   it('rejects a USER without a manager', async () => {
     await expect(
-      service.create({
+      service.create(superCaller, {
         username: 'ada',
         password: 'secret',
         name: 'Ada',
@@ -438,7 +463,7 @@ describe('UsersService PDP assignment', () => {
 
   it('rejects a PDP without a manager', async () => {
     await expect(
-      service.create({
+      service.create(superCaller, {
         username: 'ada',
         password: 'secret',
         name: 'Ada',
@@ -450,7 +475,7 @@ describe('UsersService PDP assignment', () => {
 
   it('rejects a PDP that is assigned a pdpId', async () => {
     await expect(
-      service.create({
+      service.create(superCaller, {
         username: 'ada',
         password: 'secret',
         name: 'Ada',
@@ -464,7 +489,7 @@ describe('UsersService PDP assignment', () => {
 
   it('rejects a MANAGER that is assigned a pdpId', async () => {
     await expect(
-      service.create({
+      service.create(superCaller, {
         username: 'ada',
         password: 'secret',
         name: 'Ada',
@@ -476,7 +501,7 @@ describe('UsersService PDP assignment', () => {
 
   it('rejects a pdpId that is missing, not a PDP, or has another manager', async () => {
     await expect(
-      service.create({
+      service.create(superCaller, {
         username: 'ada',
         password: 'secret',
         name: 'Ada',
@@ -502,7 +527,7 @@ describe('UsersService PDP assignment', () => {
       },
     );
     await expect(
-      service.create({
+      service.create(superCaller, {
         username: 'ada',
         password: 'secret',
         name: 'Ada',
@@ -521,7 +546,7 @@ describe('UsersService PDP assignment', () => {
       },
     );
     await expect(
-      service.create({
+      service.create(superCaller, {
         username: 'ada',
         password: 'secret',
         name: 'Ada',
@@ -548,7 +573,7 @@ describe('UsersService PDP assignment', () => {
     );
 
     await expect(
-      service.update('user-1', { managerId: 'manager-2' }, Role.SUPER),
+      service.update('user-1', { managerId: 'manager-2' }, superCaller),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(update).not.toHaveBeenCalled();
   });
@@ -562,7 +587,7 @@ describe('UsersService PDP assignment', () => {
     const updated = await service.update(
       'user-1',
       { pdpId: 'pdp-1' },
-      Role.SUPER,
+      superCaller,
     );
 
     expect(update).toHaveBeenCalledWith({
@@ -588,7 +613,11 @@ describe('UsersService PDP assignment', () => {
       pdpId: null,
     }));
 
-    const updated = await service.update('user-1', { pdpId: null }, Role.SUPER);
+    const updated = await service.update(
+      'user-1',
+      { pdpId: null },
+      superCaller,
+    );
 
     expect(update).toHaveBeenCalledWith({
       where: { id: 'user-1' },
@@ -740,7 +769,7 @@ describe('UsersService.deactivate', () => {
   });
 
   it('deactivates a user when no transfer is required', async () => {
-    const result = await service.deactivate('plain', {}, Role.SUPER);
+    const result = await service.deactivate('plain', {}, superCaller);
     expect(updateMany).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledWith({
       where: { id: 'plain' },
@@ -753,7 +782,7 @@ describe('UsersService.deactivate', () => {
     await service.deactivate(
       'mgr',
       { replacementManagerId: 'other' },
-      Role.MANAGER,
+      superCaller,
     );
     expect(updateMany).toHaveBeenCalledTimes(1);
     expect(updateMany).toHaveBeenCalledWith({
@@ -764,7 +793,7 @@ describe('UsersService.deactivate', () => {
 
   it('rejects a manager deactivation that omits the replacement', async () => {
     await expect(
-      service.deactivate('mgr', {}, Role.SUPER),
+      service.deactivate('mgr', {}, superCaller),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(update).not.toHaveBeenCalled();
   });
@@ -774,14 +803,14 @@ describe('UsersService.deactivate', () => {
       service.deactivate(
         'mgr',
         { replacementManagerId: 'child-mgr' },
-        Role.SUPER,
+        superCaller,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
       service.deactivate(
         'mgr',
         { replacementManagerId: 'deep-mgr' },
-        Role.SUPER,
+        superCaller,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -791,13 +820,13 @@ describe('UsersService.deactivate', () => {
       service.deactivate(
         'mgr',
         { replacementManagerId: 'inactive-mgr' },
-        Role.SUPER,
+        superCaller,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('clears pdpId when replacementPdpId is null', async () => {
-    await service.deactivate('pdp', { replacementPdpId: null }, Role.SUPER);
+    await service.deactivate('pdp', { replacementPdpId: null }, superCaller);
     expect(updateMany).toHaveBeenCalledWith({
       where: { pdpId: 'pdp' },
       data: { pdpId: null },
@@ -808,7 +837,7 @@ describe('UsersService.deactivate', () => {
     await service.deactivate(
       'pdp',
       { replacementPdpId: 'other-pdp' },
-      Role.MANAGER,
+      { id: 'other', role: Role.MANAGER },
     );
     expect(updateMany).toHaveBeenCalledWith({
       where: { pdpId: 'pdp' },
@@ -818,38 +847,293 @@ describe('UsersService.deactivate', () => {
 
   it('rejects a replacement PDP whose manager does not match', async () => {
     await expect(
-      service.deactivate('pdp', { replacementPdpId: 'wrong-pdp' }, Role.SUPER),
+      service.deactivate('pdp', { replacementPdpId: 'wrong-pdp' }, superCaller),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects a PDP deactivation that omits the replacement choice', async () => {
     await expect(
-      service.deactivate('pdp', {}, Role.SUPER),
+      service.deactivate('pdp', {}, superCaller),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('does not require a replacement for a PDP with no assigned users', async () => {
-    await service.deactivate('solo-pdp', {}, Role.SUPER);
+    await service.deactivate('solo-pdp', {}, superCaller);
     expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('forbids USER from deactivating', async () => {
     await expect(
-      service.deactivate('plain', {}, Role.USER),
+      service.deactivate('plain', {}, { id: 'plain', role: Role.USER }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('rejects deactivating a user who is already inactive', async () => {
     await expect(
-      service.deactivate('gone', {}, Role.SUPER),
+      service.deactivate('gone', {}, superCaller),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects patching active to false when a transfer is required', async () => {
+  it('rejects patching active to false', async () => {
     await expect(
-      service.update('mgr', { active: false }, Role.SUPER),
+      service.update('mgr', { active: false }, superCaller),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('UsersService caller write rules', () => {
+  const findUnique = vi.fn();
+  const findMany = vi.fn();
+  const create = vi.fn();
+  const update = vi.fn();
+  const updateMany = vi.fn();
+  const service = new UsersService({
+    user: { findUnique, findMany, create, update, updateMany },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ user: { updateMany, update } }),
+  } as unknown as PrismaService);
+
+  const managerCaller = { id: 'manager-1', role: Role.MANAGER };
+  const people = [
+    { ...user, id: 'manager-1', role: Role.MANAGER, managerId: null },
+    {
+      ...user,
+      id: 'direct',
+      username: 'direct',
+      role: Role.USER,
+      managerId: 'manager-1',
+    },
+    {
+      ...user,
+      id: 'nested',
+      username: 'nested',
+      role: Role.USER,
+      managerId: 'direct',
+    },
+    {
+      ...user,
+      id: 'pdp-1',
+      username: 'pdp',
+      role: Role.PDP,
+      managerId: 'manager-1',
+    },
+    {
+      ...user,
+      id: 'outside',
+      username: 'outside',
+      role: Role.USER,
+      managerId: 'someone',
+    },
+  ];
+
+  beforeEach(() => {
+    findUnique.mockReset();
+    findMany.mockReset();
+    create.mockReset();
+    update.mockReset();
+    updateMany.mockReset();
+    findUnique.mockImplementation(
+      async ({ where }: { where: { id?: string; username?: string } }) => {
+        if (where.username) return null;
+        return people.find((person) => person.id === where.id) ?? null;
+      },
+    );
+    findMany.mockImplementation(
+      async ({ where }: { where?: { managerId?: string } }) => {
+        if (!where) {
+          return people.map((person) => ({
+            id: person.id,
+            managerId: person.managerId,
+          }));
+        }
+        return people.filter((person) => person.managerId === where.managerId);
+      },
+    );
+    create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        ...user,
+        ...data,
+        id: 'created',
+      }),
+    );
+    update.mockImplementation(
+      async ({
+        where,
+        data,
+      }: {
+        where: { id: string };
+        data: Record<string, unknown>;
+      }) => ({
+        ...people.find((person) => person.id === where.id),
+        ...data,
+      }),
+    );
+  });
+
+  it('forces a manager create onto the caller and keeps an optional pdpId', async () => {
+    await service.create(managerCaller, {
+      username: 'ada',
+      password: 'secret',
+      name: 'Ada',
+      role: Role.USER,
+      pdpId: 'pdp-1',
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        role: Role.USER,
+        managerId: 'manager-1',
+        pdpId: 'pdp-1',
+      }),
+    });
+  });
+
+  it('accepts a managerId that is the caller', async () => {
+    await service.create(managerCaller, {
+      username: 'ada',
+      password: 'secret',
+      name: 'Ada',
+      role: Role.PDP,
+      managerId: 'manager-1',
+    });
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        role: Role.PDP,
+        managerId: 'manager-1',
+        pdpId: null,
+      }),
+    });
+  });
+
+  it('rejects a managerId that is not the caller', async () => {
+    await expect(
+      service.create(managerCaller, {
+        username: 'ada',
+        password: 'secret',
+        name: 'Ada',
+        role: Role.USER,
+        managerId: 'someone',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a manager creating a MANAGER or SUPER', async () => {
+    await expect(
+      service.create(managerCaller, {
+        username: 'ada',
+        password: 'secret',
+        name: 'Ada',
+        role: Role.MANAGER,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.create(managerCaller, {
+        username: 'ada',
+        password: 'secret',
+        name: 'Ada',
+        role: Role.SUPER,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('rejects a PDP that a manager assigns a pdpId', async () => {
+    await expect(
+      service.create(managerCaller, {
+        username: 'ada',
+        password: 'secret',
+        name: 'Ada',
+        role: Role.PDP,
+        pdpId: 'pdp-1',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('forbids PDP and USER from creating a user', async () => {
+    await expect(
+      service.create(
+        { id: 'pdp-1', role: Role.PDP },
+        {
+          username: 'ada',
+          password: 'secret',
+          name: 'Ada',
+          role: Role.USER,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.create(
+        { id: 'direct', role: Role.USER },
+        {
+          username: 'ada',
+          password: 'secret',
+          name: 'Ada',
+          role: Role.USER,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('lets a manager change profile fields inside the tree', async () => {
+    await service.update(
+      'nested',
+      { name: 'Nested', email: 'n@example.com' },
+      managerCaller,
+    );
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'nested' },
+      data: expect.objectContaining({ name: 'Nested', email: 'n@example.com' }),
+    });
+  });
+
+  it('forbids a manager from changing protected fields or leaving the tree', async () => {
+    await expect(
+      service.update('direct', { username: 'other-name' }, managerCaller),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.update('outside', { name: 'Nope' }, managerCaller),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.update('manager-1', { name: 'Self' }, managerCaller),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('lets a PDP change their own profile and no one else', async () => {
+    await service.update(
+      'pdp-1',
+      { name: 'Pat', phone: '555' },
+      { id: 'pdp-1', role: Role.PDP },
+    );
+    expect(update).toHaveBeenCalled();
+    await expect(
+      service.update(
+        'direct',
+        { name: 'Nope' },
+        { id: 'pdp-1', role: Role.PDP },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('lets a manager deactivate a user in the tree and not outside it', async () => {
+    await service.deactivate('direct', {}, managerCaller);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'direct' },
+      data: { active: false },
+    });
+    await expect(
+      service.deactivate('outside', {}, managerCaller),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.deactivate('manager-1', {}, managerCaller),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('forbids a PDP from deactivating a user', async () => {
+    await expect(
+      service.deactivate('direct', {}, { id: 'pdp-1', role: Role.PDP }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
