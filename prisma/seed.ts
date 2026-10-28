@@ -10,6 +10,8 @@ async function main() {
     where: { username: 'superadmin' },
     update: {
       passwordHash,
+      temporaryPassword: null,
+      mustChangePassword: false,
       name: 'Super Admin',
       email: 'superadmin@localhost',
       role: Role.SUPER,
@@ -17,6 +19,7 @@ async function main() {
     create: {
       username: 'superadmin',
       passwordHash,
+      mustChangePassword: false,
       name: 'Super Admin',
       email: 'superadmin@localhost',
       role: Role.SUPER,

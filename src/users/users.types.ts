@@ -9,10 +9,19 @@ export type SafeUser = {
   address: string | null;
   role: Role;
   active: boolean;
+  mustChangePassword: boolean;
   managerId: string | null;
   pdpId: string | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type CreatedUser = SafeUser & {
+  temporaryPassword: string;
+};
+
+export type TemporaryPasswordResult = {
+  temporaryPassword: string;
 };
 
 export type PaginatedUsers = {
@@ -31,6 +40,7 @@ export function toSafeUser(user: {
   address: string | null;
   role: Role;
   active: boolean;
+  mustChangePassword: boolean;
   managerId: string | null;
   pdpId: string | null;
   createdAt: Date;
@@ -45,6 +55,7 @@ export function toSafeUser(user: {
     address: user.address,
     role: user.role,
     active: user.active,
+    mustChangePassword: user.mustChangePassword,
     managerId: user.managerId,
     pdpId: user.pdpId,
     createdAt: user.createdAt,
