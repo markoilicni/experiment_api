@@ -20,6 +20,11 @@ import { PaginatedUsers, SafeUser, toSafeUser } from './users.types.js';
 
 const SALT_ROUNDS = 10;
 
+export type UserCaller = {
+  id: string;
+  role: Role;
+};
+
 function emptyToNull(value: string | null | undefined): string | null {
   if (value == null) return null;
   const trimmed = value.trim();
@@ -30,7 +35,11 @@ function emptyToNull(value: string | null | undefined): string | null {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateUserDto): Promise<SafeUser> {
+  async create(caller: UserCaller, dto: CreateUserDto): Promise<SafeUser> {
+    if (caller.role !== Role.SUPER && caller.role !== Role.MANAGER) {
+      throw new ForbiddenException('Cannot create a user');
+    }
+
     const existing = await this.prisma.user.findUnique({
       where: { username: dto.username },
     });
@@ -39,8 +48,18 @@ export class UsersService {
     }
 
     const role = dto.role ?? Role.USER;
-    const managerId = emptyToNull(dto.managerId);
+    let managerId = emptyToNull(dto.managerId);
     const pdpId = emptyToNull(dto.pdpId);
+
+    if (caller.role === Role.MANAGER) {
+      if (role !== Role.USER && role !== Role.PDP) {
+        throw new ForbiddenException('A manager may create only USER or PDP');
+      }
+      if (managerId !== null && managerId !== caller.id) {
+        throw new BadRequestException('managerId must be the caller');
+      }
+      managerId = caller.id;
+    }
 
     if (managerId) {
       await this.ensureUserExists(managerId);
@@ -142,15 +161,34 @@ export class UsersService {
   async update(
     id: string,
     dto: UpdateUserDto,
-    callerRole: Role,
+    caller: UserCaller,
   ): Promise<SafeUser> {
+    if (caller.role === Role.USER) {
+      throw new ForbiddenException('Cannot update a user');
+    }
+    if (
+      caller.role !== Role.SUPER &&
+      caller.role !== Role.MANAGER &&
+      caller.role !== Role.PDP
+    ) {
+      throw new ForbiddenException('Cannot update a user');
+    }
+
     const existing = await this.ensureUserExists(id);
 
-    if (dto.active !== undefined) {
-      this.assertCanChangeActive(callerRole, dto.active);
+    if (caller.role === Role.PDP && id !== caller.id) {
+      throw new ForbiddenException('Cannot update this user');
+    }
+    if (caller.role === Role.MANAGER) {
+      await this.assertInManagerTree(caller.id, id);
+    }
+    if (caller.role === Role.MANAGER || caller.role === Role.PDP) {
+      this.assertProfileFieldsOnly(dto);
     }
     if (dto.active === false) {
-      await this.assertDeactivateWithoutTransfer(existing);
+      throw new BadRequestException(
+        'Set active to false with POST /api/v1/users/:id/deactivate',
+      );
     }
 
     if (dto.username) {
@@ -215,13 +253,16 @@ export class UsersService {
   async deactivate(
     id: string,
     dto: DeactivateUserDto,
-    callerRole: Role,
+    caller: UserCaller,
   ): Promise<SafeUser> {
-    if (callerRole !== Role.SUPER && callerRole !== Role.MANAGER) {
+    if (caller.role !== Role.SUPER && caller.role !== Role.MANAGER) {
       throw new ForbiddenException('Cannot deactivate a user');
     }
 
     const existing = await this.ensureUserExists(id);
+    if (caller.role === Role.MANAGER) {
+      await this.assertInManagerTree(caller.id, id);
+    }
     if (!existing.active) {
       throw new BadRequestException('User is already inactive');
     }
@@ -330,29 +371,25 @@ export class UsersService {
     }
   }
 
-  private async assertDeactivateWithoutTransfer(user: {
-    id: string;
-    role: Role;
-  }) {
-    if (user.role === Role.MANAGER) {
-      const reports = await this.prisma.user.count({
-        where: { managerId: user.id },
-      });
-      if (reports > 0) {
-        throw new BadRequestException(
-          'replacementManagerId is required to deactivate a manager with direct reports',
-        );
-      }
+  private assertProfileFieldsOnly(dto: UpdateUserDto) {
+    const restricted = [
+      dto.username !== undefined ? 'username' : null,
+      dto.role !== undefined ? 'role' : null,
+      dto.managerId !== undefined ? 'managerId' : null,
+      dto.pdpId !== undefined ? 'pdpId' : null,
+      dto.password !== undefined ? 'password' : null,
+      dto.active !== undefined ? 'active' : null,
+    ].filter((field) => field !== null);
+    if (restricted.length > 0) {
+      throw new ForbiddenException(`Cannot change ${restricted.join(', ')}`);
     }
-    if (user.role === Role.PDP) {
-      const assignees = await this.prisma.user.count({
-        where: { pdpId: user.id },
-      });
-      if (assignees > 0) {
-        throw new BadRequestException(
-          'replacementPdpId is required to deactivate a PDP with assigned users',
-        );
-      }
+  }
+
+  private async assertInManagerTree(callerId: string, userId: string) {
+    const tree = await this.descendantIds(callerId);
+    tree.delete(callerId);
+    if (!tree.has(userId)) {
+      throw new ForbiddenException('User is outside the caller manager tree');
     }
   }
 
@@ -432,15 +469,6 @@ export class UsersService {
       }
     }
     return closed;
-  }
-
-  private assertCanChangeActive(callerRole: Role, active: boolean) {
-    if (callerRole === Role.PDP || callerRole === Role.USER) {
-      throw new ForbiddenException('Cannot change active');
-    }
-    if (active && callerRole !== Role.SUPER) {
-      throw new ForbiddenException('Only SUPER may reactivate a user');
-    }
   }
 
   private async ensureUserExists(id: string) {

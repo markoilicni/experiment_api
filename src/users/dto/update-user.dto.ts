@@ -14,7 +14,7 @@ export class UpdateUserDto extends PartialType(
 
   @ApiPropertyOptional({
     description:
-      'Only SUPER may set active to true. PDP and USER cannot change active.',
+      'Only SUPER may set active to true. Setting active to false uses POST /users/:id/deactivate. MANAGER and PDP cannot change active.',
   })
   @IsOptional()
   @IsBoolean()

@@ -42,14 +42,17 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  @Roles(Role.SUPER)
-  @ApiCreatedResponse({ description: 'User created' })
-  create(@Body() dto: CreateUserDto) {
-    return this.usersService.create(dto);
+  @Roles(Role.SUPER, Role.MANAGER)
+  @ApiCreatedResponse({
+    description:
+      'User created. SUPER may create any role. MANAGER may create only USER or PDP, and managerId is forced to the caller. A different managerId is rejected. PDP and USER receive 403.',
+  })
+  create(@Body() dto: CreateUserDto, @Req() req: AuthRequest) {
+    return this.usersService.create(req.user, dto);
   }
 
   @Get()
-  @Roles(Role.SUPER, Role.MANAGER)
+  @Roles(Role.SUPER, Role.MANAGER, Role.PDP, Role.USER)
   @ApiQuery({ name: 'sortBy', required: false, enum: USER_SORT_FIELDS })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['ASC', 'DESC'] })
   @ApiQuery({ name: 'role', required: false, enum: Role })
@@ -103,15 +106,18 @@ export class UsersController {
   })
   @ApiOkResponse({
     description:
-      'Paginated users: { data, page, pageSize, total }. Pagination applies after sort and filter.',
+      'Paginated users for every role: { data, page, pageSize, total }. Pagination applies after sort and filter. A caller who is not SUPER still cannot see inactive users.',
   })
   findAll(@Query() query: ListUsersQueryDto, @Req() req: AuthRequest) {
     return this.usersService.findAll(query, req.user.role);
   }
 
   @Get(':id')
-  @Roles(Role.SUPER, Role.MANAGER)
-  @ApiOkResponse({ description: 'Get user by id' })
+  @Roles(Role.SUPER, Role.MANAGER, Role.PDP, Role.USER)
+  @ApiOkResponse({
+    description:
+      'Get user by id. Every role may call this. An inactive user is 404 unless the caller is SUPER.',
+  })
   findOne(@Param('id') id: string, @Req() req: AuthRequest) {
     return this.usersService.findOne(id, req.user.role);
   }
@@ -120,25 +126,28 @@ export class UsersController {
   @Roles(Role.SUPER, Role.MANAGER)
   @ApiOkResponse({
     description:
-      'User deactivated. A manager with direct reports requires replacementManagerId. A PDP with assigned users requires replacementPdpId.',
+      'User deactivated. SUPER may deactivate any user. MANAGER may deactivate a user in their manager tree and cannot mark that user active again. PDP and USER receive 403. A manager with direct reports requires replacementManagerId. A PDP with assigned users requires replacementPdpId.',
   })
   deactivate(
     @Param('id') id: string,
     @Body() dto: DeactivateUserDto,
     @Req() req: AuthRequest,
   ) {
-    return this.usersService.deactivate(id, dto, req.user.role);
+    return this.usersService.deactivate(id, dto, req.user);
   }
 
   @Patch(':id')
-  @Roles(Role.SUPER)
-  @ApiOkResponse({ description: 'User updated' })
+  @Roles(Role.SUPER, Role.MANAGER, Role.PDP)
+  @ApiOkResponse({
+    description:
+      'User updated. SUPER may change username, name, email, phone, address, role, manager, and PDP, and may set active to true. Setting active to false uses deactivate. MANAGER may change name, email, phone, and address for a user in their manager tree. PDP may change those fields on their own user. USER receives 403.',
+  })
   update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
     @Req() req: AuthRequest,
   ) {
-    return this.usersService.update(id, dto, req.user.role);
+    return this.usersService.update(id, dto, req.user);
   }
 
   @Delete(':id')
