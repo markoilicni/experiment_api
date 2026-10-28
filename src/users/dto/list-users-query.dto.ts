@@ -56,6 +56,24 @@ export class ListUsersQueryDto {
 
   @ApiPropertyOptional({
     description:
+      'Return direct reports of this manager and everyone further down the chain. The manager is not included. Combines with managerId and the other filters using AND.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  managerTreeId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Case-insensitive substring match on the user name. Combines with the other filters using AND.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  name?: string;
+
+  @ApiPropertyOptional({
+    description:
       'Return users assigned to this PDP. Cannot be combined with hasPdp=false.',
   })
   @IsOptional()

@@ -157,6 +157,74 @@ describe('UsersService.findAll', () => {
     });
   });
 
+  it('filters by the manager tree without including that manager', async () => {
+    findMany.mockImplementation(
+      async (args: { select?: { id?: boolean } }) => {
+        if (args.select?.id) {
+          return [
+            { id: 'manager-1', managerId: null },
+            { id: 'direct', managerId: 'manager-1' },
+            { id: 'nested', managerId: 'direct' },
+            { id: 'other', managerId: 'someone-else' },
+          ];
+        }
+        return [user];
+      },
+    );
+
+    await service.findAll({ managerTreeId: 'manager-1' }, Role.SUPER);
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: { active: true, id: { in: ['direct', 'nested'] } },
+      orderBy: { createdAt: 'asc' },
+      skip: 0,
+      take: 100,
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: { active: true, id: { in: ['direct', 'nested'] } },
+    });
+  });
+
+  it('filters by name together with the manager tree and exact managerId', async () => {
+    findMany.mockImplementation(
+      async (args: { select?: { id?: boolean } }) => {
+        if (args.select?.id) {
+          return [
+            { id: 'manager-1', managerId: null },
+            { id: 'direct', managerId: 'manager-1' },
+          ];
+        }
+        return [user];
+      },
+    );
+
+    await service.findAll(
+      {
+        role: Role.USER,
+        managerId: 'direct',
+        managerTreeId: 'manager-1',
+        name: 'ada',
+        pdpId: 'pdp-1',
+        active: true,
+      },
+      Role.SUPER,
+    );
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        role: Role.USER,
+        managerId: 'direct',
+        id: { in: ['direct'] },
+        name: { contains: 'ada' },
+        pdpId: 'pdp-1',
+        active: true,
+      },
+      orderBy: { createdAt: 'asc' },
+      skip: 0,
+      take: 100,
+    });
+  });
+
   it('returns users with an empty pdpId when hasPdp is false', async () => {
     await service.findAll({ role: Role.USER, hasPdp: false }, Role.SUPER);
     expect(findMany).toHaveBeenCalledWith({
