@@ -11,7 +11,10 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOkResponse({ description: 'Login successful' })
+  @ApiOkResponse({
+    description:
+      'Login successful. The user includes mustChangePassword. An inactive user is rejected.',
+  })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }

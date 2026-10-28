@@ -17,7 +17,9 @@ const activeUser = {
   address: null,
   role: Role.USER,
   active: true,
+  mustChangePassword: false,
   managerId: null,
+  pdpId: null,
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
 };
@@ -63,6 +65,23 @@ describe('AuthService.login', () => {
     expect(result.accessToken).toBe('token');
     expect(result.refreshToken).toBe('token');
     expect(result.user.active).toBe(true);
+    expect(result.user.mustChangePassword).toBe(false);
+    expect(result.user).not.toHaveProperty('temporaryPassword');
     expect(signAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('includes mustChangePassword when the user still has a temporary password', async () => {
+    findByUsername.mockResolvedValue({
+      ...activeUser,
+      mustChangePassword: true,
+    });
+
+    const result = await service.login({
+      username: 'ada',
+      password: 'secret',
+    });
+
+    expect(result.user.mustChangePassword).toBe(true);
+    expect(result.accessToken).toBe('token');
   });
 });

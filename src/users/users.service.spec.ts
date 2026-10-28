@@ -18,6 +18,7 @@ const user = {
   address: null,
   role: Role.USER,
   active: true,
+  mustChangePassword: false,
   managerId: null,
   pdpId: null,
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -68,6 +69,8 @@ describe('UsersService.findAll', () => {
       total: 1,
     });
     expect(result.data[0]).not.toHaveProperty('passwordHash');
+    expect(result.data[0]).not.toHaveProperty('temporaryPassword');
+    expect(result.data[0].mustChangePassword).toBe(false);
     expect(result.data[0].pdpId).toBeNull();
   });
 
@@ -431,7 +434,6 @@ describe('UsersService PDP assignment', () => {
   it('creates a user with a PDP who shares their manager', async () => {
     const created = await service.create(superCaller, {
       username: 'ada',
-      password: 'secret',
       name: 'Ada',
       role: Role.USER,
       managerId: 'manager-1',
@@ -446,14 +448,25 @@ describe('UsersService PDP assignment', () => {
       }),
     });
     expect(created.pdpId).toBe('pdp-1');
+    expect(created.mustChangePassword).toBe(true);
+    expect(created.temporaryPassword.length).toBeGreaterThanOrEqual(4);
     expect(created).not.toHaveProperty('passwordHash');
+    const stored = create.mock.calls[0]?.[0] as {
+      data: {
+        temporaryPassword: string;
+        passwordHash: string;
+        mustChangePassword: boolean;
+      };
+    };
+    expect(stored.data.temporaryPassword).toBe(created.temporaryPassword);
+    expect(stored.data.passwordHash).not.toBe(created.temporaryPassword);
+    expect(stored.data.mustChangePassword).toBe(true);
   });
 
   it('rejects a USER without a manager', async () => {
     await expect(
       service.create(superCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.USER,
       }),
@@ -465,7 +478,6 @@ describe('UsersService PDP assignment', () => {
     await expect(
       service.create(superCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.PDP,
       }),
@@ -477,7 +489,6 @@ describe('UsersService PDP assignment', () => {
     await expect(
       service.create(superCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.PDP,
         managerId: 'manager-1',
@@ -491,7 +502,6 @@ describe('UsersService PDP assignment', () => {
     await expect(
       service.create(superCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.MANAGER,
         pdpId: 'pdp-1',
@@ -503,7 +513,6 @@ describe('UsersService PDP assignment', () => {
     await expect(
       service.create(superCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.USER,
         managerId: 'manager-1',
@@ -529,7 +538,6 @@ describe('UsersService PDP assignment', () => {
     await expect(
       service.create(superCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.USER,
         managerId: 'manager-1',
@@ -548,7 +556,6 @@ describe('UsersService PDP assignment', () => {
     await expect(
       service.create(superCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.USER,
         managerId: 'manager-1',
@@ -975,7 +982,6 @@ describe('UsersService caller write rules', () => {
   it('forces a manager create onto the caller and keeps an optional pdpId', async () => {
     await service.create(managerCaller, {
       username: 'ada',
-      password: 'secret',
       name: 'Ada',
       role: Role.USER,
       pdpId: 'pdp-1',
@@ -992,7 +998,6 @@ describe('UsersService caller write rules', () => {
   it('accepts a managerId that is the caller', async () => {
     await service.create(managerCaller, {
       username: 'ada',
-      password: 'secret',
       name: 'Ada',
       role: Role.PDP,
       managerId: 'manager-1',
@@ -1010,7 +1015,6 @@ describe('UsersService caller write rules', () => {
     await expect(
       service.create(managerCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.USER,
         managerId: 'someone',
@@ -1023,7 +1027,6 @@ describe('UsersService caller write rules', () => {
     await expect(
       service.create(managerCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.MANAGER,
       }),
@@ -1031,7 +1034,6 @@ describe('UsersService caller write rules', () => {
     await expect(
       service.create(managerCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.SUPER,
       }),
@@ -1042,7 +1044,6 @@ describe('UsersService caller write rules', () => {
     await expect(
       service.create(managerCaller, {
         username: 'ada',
-        password: 'secret',
         name: 'Ada',
         role: Role.PDP,
         pdpId: 'pdp-1',
@@ -1056,7 +1057,6 @@ describe('UsersService caller write rules', () => {
         { id: 'pdp-1', role: Role.PDP },
         {
           username: 'ada',
-          password: 'secret',
           name: 'Ada',
           role: Role.USER,
         },
@@ -1067,7 +1067,6 @@ describe('UsersService caller write rules', () => {
         { id: 'direct', role: Role.USER },
         {
           username: 'ada',
-          password: 'secret',
           name: 'Ada',
           role: Role.USER,
         },
@@ -1135,5 +1134,125 @@ describe('UsersService caller write rules', () => {
     await expect(
       service.deactivate('direct', {}, { id: 'pdp-1', role: Role.PDP }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('UsersService temporary passwords', () => {
+  const findUnique = vi.fn();
+  const update = vi.fn();
+  const service = new UsersService({
+    user: { findUnique, update },
+  } as unknown as PrismaService);
+
+  const withTemp = {
+    ...user,
+    mustChangePassword: true,
+    temporaryPassword: 'temp-secret',
+  };
+
+  beforeEach(() => {
+    findUnique.mockReset();
+    update.mockReset();
+    findUnique.mockImplementation(
+      async ({ where }: { where: { id: string } }) => {
+        if (where.id === user.id) return withTemp;
+        return null;
+      },
+    );
+    update.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        ...withTemp,
+        ...data,
+      }),
+    );
+  });
+
+  it('lets the user replace the temporary password', async () => {
+    const result = await service.setOwnPassword(user.id, {
+      password: 'new-secret',
+      passwordConfirmation: 'new-secret',
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: user.id },
+      data: expect.objectContaining({
+        mustChangePassword: false,
+        temporaryPassword: null,
+        passwordHash: expect.any(String),
+      }),
+    });
+    const stored = update.mock.calls[0]?.[0] as {
+      data: { passwordHash: string };
+    };
+    expect(stored.data.passwordHash).not.toBe('new-secret');
+    expect(result.mustChangePassword).toBe(false);
+    expect(result).not.toHaveProperty('temporaryPassword');
+  });
+
+  it('rejects a confirmation that does not match', async () => {
+    await expect(
+      service.setOwnPassword(user.id, {
+        password: 'new-secret',
+        passwordConfirmation: 'other',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('returns the temporary password to SUPER while it is still required', async () => {
+    const result = await service.getTemporaryPassword(user.id, superCaller);
+    expect(result).toEqual({ temporaryPassword: 'temp-secret' });
+  });
+
+  it('does not return a temporary password after it has been replaced', async () => {
+    findUnique.mockResolvedValue({
+      ...user,
+      mustChangePassword: false,
+      temporaryPassword: null,
+    });
+    await expect(
+      service.getTemporaryPassword(user.id, superCaller),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('forbids a non-SUPER from reading or issuing a temporary password', async () => {
+    const manager = { id: 'manager-1', role: Role.MANAGER };
+    await expect(
+      service.getTemporaryPassword(user.id, manager),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.issueTemporaryPassword(user.id, manager),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('issues a new temporary password for SUPER', async () => {
+    const result = await service.issueTemporaryPassword(user.id, superCaller);
+    expect(result.temporaryPassword.length).toBeGreaterThanOrEqual(4);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: user.id },
+      data: expect.objectContaining({
+        mustChangePassword: true,
+        temporaryPassword: result.temporaryPassword,
+        passwordHash: expect.any(String),
+      }),
+    });
+    const stored = update.mock.calls[0]?.[0] as {
+      data: { passwordHash: string; temporaryPassword: string };
+    };
+    expect(stored.data.passwordHash).not.toBe(stored.data.temporaryPassword);
+  });
+
+  it('returns 404 when the user does not exist', async () => {
+    findUnique.mockResolvedValue(null);
+    await expect(
+      service.getTemporaryPassword('missing', superCaller),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.setOwnPassword('missing', {
+        password: 'new-secret',
+        passwordConfirmation: 'new-secret',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -23,6 +25,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { DeactivateUserDto } from './dto/deactivate-user.dto.js';
+import { SetPasswordDto } from './dto/set-password.dto.js';
 import {
   ListUsersQueryDto,
   USER_SORT_FIELDS,
@@ -45,7 +48,7 @@ export class UsersController {
   @Roles(Role.SUPER, Role.MANAGER)
   @ApiCreatedResponse({
     description:
-      'User created. SUPER may create any role. MANAGER may create only USER or PDP, and managerId is forced to the caller. A different managerId is rejected. PDP and USER receive 403.',
+      'User created with a generated temporary password. The response includes temporaryPassword once and mustChangePassword true. SUPER may create any role. MANAGER may create only USER or PDP, and managerId is forced to the caller. A different managerId is rejected. PDP and USER receive 403.',
   })
   create(@Body() dto: CreateUserDto, @Req() req: AuthRequest) {
     return this.usersService.create(req.user, dto);
@@ -110,6 +113,37 @@ export class UsersController {
   })
   findAll(@Query() query: ListUsersQueryDto, @Req() req: AuthRequest) {
     return this.usersService.findAll(query, req.user.role);
+  }
+
+  @Post('me/password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({
+    description:
+      'The signed-in user sets their own password. password and passwordConfirmation must match and be at least 4 characters. This clears mustChangePassword and discards the readable temporary password. No other role can set this permanent password.',
+  })
+  setOwnPassword(@Body() dto: SetPasswordDto, @Req() req: AuthRequest) {
+    return this.usersService.setOwnPassword(req.user.id, dto);
+  }
+
+  @Get(':id/temporary-password')
+  @Roles(Role.SUPER)
+  @ApiOkResponse({
+    description:
+      'SUPER only. Returns the current temporary password while mustChangePassword is true. After the user replaces it, the temporary value is gone and this returns 404.',
+  })
+  getTemporaryPassword(@Param('id') id: string, @Req() req: AuthRequest) {
+    return this.usersService.getTemporaryPassword(id, req.user);
+  }
+
+  @Post(':id/temporary-password')
+  @Roles(Role.SUPER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({
+    description:
+      'SUPER only. Generates a new temporary password, stores it, sets mustChangePassword to true, and returns temporaryPassword once. The super user can read it again until the user replaces it.',
+  })
+  issueTemporaryPassword(@Param('id') id: string, @Req() req: AuthRequest) {
+    return this.usersService.issueTemporaryPassword(id, req.user);
   }
 
   @Get(':id')

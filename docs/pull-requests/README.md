@@ -15,3 +15,4 @@ Each merged pull request keeps its description here, in `docs/pull-requests/`. T
 | [#25](https://github.com/markoilicni/experiment_api/pull/25) | [Transfer people before deactivating a manager or PDP](0025-deactivate-transfer.md) |
 | [#26](https://github.com/markoilicni/experiment_api/pull/26) | [Filter users by manager tree and name](0026-filter-users-manager-tree-name.md) |
 | [#27](https://github.com/markoilicni/experiment_api/pull/27) | [Open user reads and enforce who may write](0027-open-user-reads-and-enforce-writes.md) |
+| [#28](https://github.com/markoilicni/experiment_api/pull/28) | [Temporary passwords](0028-temporary-passwords.md) |

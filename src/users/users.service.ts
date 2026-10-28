@@ -5,18 +5,26 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { DeactivateUserDto } from './dto/deactivate-user.dto.js';
+import { SetPasswordDto } from './dto/set-password.dto.js';
 import {
   DEFAULT_USERS_PAGE,
   DEFAULT_USERS_PAGE_SIZE,
   ListUsersQueryDto,
 } from './dto/list-users-query.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
-import { PaginatedUsers, SafeUser, toSafeUser } from './users.types.js';
+import {
+  CreatedUser,
+  PaginatedUsers,
+  SafeUser,
+  TemporaryPasswordResult,
+  toSafeUser,
+} from './users.types.js';
 
 const SALT_ROUNDS = 10;
 
@@ -24,6 +32,12 @@ export type UserCaller = {
   id: string;
   role: Role;
 };
+
+async function buildTemporaryPassword() {
+  const temporaryPassword = randomBytes(18).toString('base64url');
+  const passwordHash = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
+  return { temporaryPassword, passwordHash };
+}
 
 function emptyToNull(value: string | null | undefined): string | null {
   if (value == null) return null;
@@ -35,7 +49,7 @@ function emptyToNull(value: string | null | undefined): string | null {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(caller: UserCaller, dto: CreateUserDto): Promise<SafeUser> {
+  async create(caller: UserCaller, dto: CreateUserDto): Promise<CreatedUser> {
     if (caller.role !== Role.SUPER && caller.role !== Role.MANAGER) {
       throw new ForbiddenException('Cannot create a user');
     }
@@ -66,11 +80,13 @@ export class UsersService {
     }
     await this.assertAssignment({ role, managerId, pdpId });
 
-    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    const { temporaryPassword, passwordHash } = await buildTemporaryPassword();
     const user = await this.prisma.user.create({
       data: {
         username: dto.username,
         passwordHash,
+        temporaryPassword,
+        mustChangePassword: true,
         name: dto.name,
         email: dto.email,
         phone: dto.phone,
@@ -80,7 +96,7 @@ export class UsersService {
         pdpId,
       },
     });
-    return toSafeUser(user);
+    return { ...toSafeUser(user), temporaryPassword };
   }
 
   async findAll(
@@ -242,10 +258,6 @@ export class UsersService {
       }
     }
 
-    if (dto.password) {
-      data.passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
-    }
-
     const user = await this.prisma.user.update({ where: { id }, data });
     return toSafeUser(user);
   }
@@ -323,6 +335,62 @@ export class UsersService {
     return toSafeUser(user);
   }
 
+  async setOwnPassword(userId: string, dto: SetPasswordDto): Promise<SafeUser> {
+    if (dto.password !== dto.passwordConfirmation) {
+      throw new BadRequestException(
+        'password and passwordConfirmation must match',
+      );
+    }
+
+    await this.ensureUserExists(userId);
+    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        mustChangePassword: false,
+        temporaryPassword: null,
+      },
+    });
+    return toSafeUser(user);
+  }
+
+  async getTemporaryPassword(
+    id: string,
+    caller: UserCaller,
+  ): Promise<TemporaryPasswordResult> {
+    if (caller.role !== Role.SUPER) {
+      throw new ForbiddenException('Only SUPER may read a temporary password');
+    }
+
+    const user = await this.ensureUserExists(id);
+    if (!user.mustChangePassword || !user.temporaryPassword) {
+      throw new NotFoundException('Temporary password is not available');
+    }
+    return { temporaryPassword: user.temporaryPassword };
+  }
+
+  async issueTemporaryPassword(
+    id: string,
+    caller: UserCaller,
+  ): Promise<TemporaryPasswordResult> {
+    if (caller.role !== Role.SUPER) {
+      throw new ForbiddenException('Only SUPER may issue a temporary password');
+    }
+
+    await this.ensureUserExists(id);
+    const { temporaryPassword, passwordHash } = await buildTemporaryPassword();
+    await this.prisma.user.update({
+      where: { id },
+      data: {
+        passwordHash,
+        temporaryPassword,
+        mustChangePassword: true,
+      },
+    });
+    return { temporaryPassword };
+  }
+
   async remove(id: string): Promise<void> {
     await this.ensureUserExists(id);
     await this.prisma.user.delete({ where: { id } });
@@ -377,7 +445,6 @@ export class UsersService {
       dto.role !== undefined ? 'role' : null,
       dto.managerId !== undefined ? 'managerId' : null,
       dto.pdpId !== undefined ? 'pdpId' : null,
-      dto.password !== undefined ? 'password' : null,
       dto.active !== undefined ? 'active' : null,
     ].filter((field) => field !== null);
     if (restricted.length > 0) {
