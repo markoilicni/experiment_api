@@ -55,6 +55,20 @@ export class UsersController {
   @ApiQuery({ name: 'role', required: false, enum: Role })
   @ApiQuery({ name: 'managerId', required: false, type: String })
   @ApiQuery({
+    name: 'managerTreeId',
+    required: false,
+    type: String,
+    description:
+      'Return direct reports of this manager and everyone further down the chain. The manager is not included. Combines with managerId and the other filters using AND.',
+  })
+  @ApiQuery({
+    name: 'name',
+    required: false,
+    type: String,
+    description:
+      'Case-insensitive substring match on the user name. Combines with the other filters using AND.',
+  })
+  @ApiQuery({
     name: 'pdpId',
     required: false,
     type: String,

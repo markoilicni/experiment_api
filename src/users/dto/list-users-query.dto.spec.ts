@@ -44,6 +44,27 @@ describe('ListUsersQueryDto', () => {
     expect(dto.role).toBe(Role.USER);
   });
 
+  it('accepts a manager tree id and a name', async () => {
+    const dto = plainToInstance(ListUsersQueryDto, {
+      managerTreeId: 'manager-1',
+      name: 'Ada',
+    });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+    expect(dto.managerTreeId).toBe('manager-1');
+    expect(dto.name).toBe('Ada');
+  });
+
+  it('rejects an empty manager tree id or name', async () => {
+    const emptyTree = await validateQuery({ managerTreeId: '' });
+    expect(emptyTree.some((error) => error.property === 'managerTreeId')).toBe(
+      true,
+    );
+
+    const emptyName = await validateQuery({ name: '' });
+    expect(emptyName.some((error) => error.property === 'name')).toBe(true);
+  });
+
   it('accepts a pdp id and hasPdp false', async () => {
     const dto = plainToInstance(ListUsersQueryDto, {
       pdpId: 'pdp-1',

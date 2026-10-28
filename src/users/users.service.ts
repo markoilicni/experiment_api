@@ -85,6 +85,14 @@ export class UsersService {
     if (query.managerId) {
       where.managerId = query.managerId;
     }
+    if (query.managerTreeId) {
+      const reports = await this.descendantIds(query.managerTreeId);
+      reports.delete(query.managerTreeId);
+      where.id = { in: [...reports] };
+    }
+    if (query.name) {
+      where.name = { contains: query.name };
+    }
     if (query.pdpId && query.hasPdp === false) {
       throw new BadRequestException(
         'pdpId and hasPdp=false cannot be used together',
