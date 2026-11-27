@@ -19,6 +19,7 @@ export class TopicGroupsService {
       data: {
         name: dto.name,
         disciplineId,
+        isPdp: dto.isPdp ?? false,
       },
     });
   }
@@ -28,7 +29,7 @@ export class TopicGroupsService {
 
     return this.prisma.topicGroup.findMany({
       where: { disciplineId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ isPdp: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
@@ -60,6 +61,7 @@ export class TopicGroupsService {
       data: {
         name: dto.name,
         disciplineId: dto.disciplineId,
+        isPdp: dto.isPdp,
       },
     });
   }

@@ -15,6 +15,7 @@ const topicGroup = {
   id: 'tg-1',
   name: 'Algebra',
   description: null,
+  isPdp: false,
   disciplineId: 'disc-1',
   createdAt: new Date('2026-01-02T00:00:00.000Z'),
   updatedAt: new Date('2026-01-02T00:00:00.000Z'),
@@ -67,9 +68,26 @@ describe('TopicGroupsService', () => {
       const result = await service.create('disc-1', { name: 'Algebra' });
 
       expect(topicGroupCreate).toHaveBeenCalledWith({
-        data: { name: 'Algebra', disciplineId: 'disc-1' },
+        data: { name: 'Algebra', disciplineId: 'disc-1', isPdp: false },
       });
       expect(result).toEqual(topicGroup);
+    });
+
+    it('creates a PDP topic group when isPdp is true', async () => {
+      const pdpTopicGroup = { ...topicGroup, isPdp: true };
+      disciplineFindUnique.mockResolvedValue(discipline);
+      topicGroupFindFirst.mockResolvedValue(null);
+      topicGroupCreate.mockResolvedValue(pdpTopicGroup);
+
+      const result = await service.create('disc-1', {
+        name: 'Algebra',
+        isPdp: true,
+      });
+
+      expect(topicGroupCreate).toHaveBeenCalledWith({
+        data: { name: 'Algebra', disciplineId: 'disc-1', isPdp: true },
+      });
+      expect(result.isPdp).toBe(true);
     });
 
     it('throws NotFoundException when the discipline does not exist', async () => {
@@ -93,7 +111,7 @@ describe('TopicGroupsService', () => {
   });
 
   describe('findAll', () => {
-    it('returns topic groups for the discipline ordered by createdAt desc', async () => {
+    it('returns topic groups for the discipline with PDP groups first', async () => {
       disciplineFindUnique.mockResolvedValue(discipline);
       topicGroupFindMany.mockResolvedValue([topicGroup]);
 
@@ -101,7 +119,7 @@ describe('TopicGroupsService', () => {
 
       expect(topicGroupFindMany).toHaveBeenCalledWith({
         where: { disciplineId: 'disc-1' },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ isPdp: 'desc' }, { createdAt: 'desc' }],
       });
       expect(result).toEqual([topicGroup]);
     });
@@ -141,9 +159,22 @@ describe('TopicGroupsService', () => {
 
       expect(topicGroupUpdate).toHaveBeenCalledWith({
         where: { id: 'tg-1' },
-        data: { name: 'Geometry', disciplineId: undefined },
+        data: { name: 'Geometry', disciplineId: undefined, isPdp: undefined },
       });
       expect(result.name).toBe('Geometry');
+    });
+
+    it('sets isPdp on update', async () => {
+      topicGroupFindUnique.mockResolvedValue(topicGroup);
+      topicGroupUpdate.mockResolvedValue({ ...topicGroup, isPdp: true });
+
+      const result = await service.update('tg-1', { isPdp: true });
+
+      expect(topicGroupUpdate).toHaveBeenCalledWith({
+        where: { id: 'tg-1' },
+        data: { name: undefined, disciplineId: undefined, isPdp: true },
+      });
+      expect(result.isPdp).toBe(true);
     });
 
     it('moves a topic group to another discipline', async () => {
