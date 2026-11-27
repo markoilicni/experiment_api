@@ -49,6 +49,7 @@ model TopicGroup {
   id           String     @id @default(cuid())
   name         String
   description  String?
+  isPdp        Boolean    @default(false)
   disciplineId String
   discipline   Discipline @relation(fields: [disciplineId], references: [id])
   topics       Topic[]
