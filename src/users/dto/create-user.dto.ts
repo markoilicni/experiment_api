@@ -34,9 +34,15 @@ export class CreateUserDto {
   @IsString()
   address?: string;
 
-  @ApiProperty({ enum: Role, default: Role.USER })
+  @ApiProperty({
+    enum: Role,
+    default: Role.USER,
+    description:
+      'Defaults to USER on create when omitted. Do not use a property initializer: PartialType would put that default on every update and treat an omitted role as a change to USER.',
+  })
+  @IsOptional()
   @IsEnum(Role)
-  role: Role = Role.USER;
+  role?: Role;
 
   @ApiPropertyOptional({
     description:
